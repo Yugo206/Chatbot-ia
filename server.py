@@ -213,5 +213,4 @@ def stream():
 
 
 if __name__ == "__main__":
-    # DEV ONLY - en production (Alwaysdata), utiliser WSGI
-    app.run(host="0.0.0.0", port=58205, threaded=True)
+    app.run()
