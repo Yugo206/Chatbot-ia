@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Chatbot Pro</title>
+
+<!-- Librairies Markdown et sécurité -->
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/dompurify@3.0.6/dist/purify.min.js"></script>
+
+<style>
+body {
+    margin:0;
+    font-family:system-ui;
+    background:#0f172a;
+    color:white;
+    display:flex;
+    justify-content:center;
+    align-items:center;
+    height:100vh;
+}
+#app{
+    width:900px;
+    height:90vh;
+    background:#1e293b;
+    border-radius:20px;
+    display:flex;
+    flex-direction:column;
+    overflow:hidden;
+}
+header{
+    background:#ED8421;
+    padding:1rem;
+    text-align:center;
+    font-weight:bold;
+    color:black;
+}
+#chat{
+    flex:1;
+    padding:20px;
+    overflow-y:auto;
+    display:flex;
+    flex-direction:column;
+    gap:12px;
+}
+.message{
+    max-width:70%;
+    padding:12px;
+    border-radius:14px;
+    white-space:pre-wrap;
+}
+.user{ align-self:flex-end; background:#2563eb; }
+.bot{ align-self:flex-start; background:#16a34a; }
+.system{ align-self:center; background:#475569; }
+#status{
+    text-align:center;
+    padding:5px;
+    font-size:0.9rem;
+    color:#facc15;
+}
+#input-area{
+    display:flex;
+    padding:15px;
+    gap:10px;
+    background:#0f172a;
+}
+input{
+    flex:1;
+    padding:10px;
+    border-radius:10px;
+    border:none;
+    background:#334155;
+    color:white;
+}
+button{
+    padding:10px 20px;
+    border:none;
+    border-radius:10px;
+    background:#ED8421;
+    font-weight:bold;
+    cursor:pointer;
+}
+button:disabled{
+    opacity:0.5;
+    cursor:not-allowed;
+}
+</style>
+</head>
+
+<body>
+<div id="app">
+<header>🤖 Chatbot Pro <button id="logoutBtn" style="float:right;background:#334155;color:white;border:none;padding:6px 10px;border-radius:8px;cursor:pointer;">Logout</button></header>
+<div id="chat"></div>
+<div id="status"></div>
+
+<div id="input-area">
+<input id="msg" placeholder="Écris ton message...">
+<button id="sendBtn">Envoyer</button>
+</div>
+</div>
+
+<script>
+document.addEventListener("DOMContentLoaded", () => {
+    const chat = document.getElementById("chat");
+    const statusBox = document.getElementById("status");
+    const sendBtn = document.getElementById("sendBtn");
+    const input = document.getElementById("msg");
+
+    let username = "";
+    let sessionActive = false;
+
+    function addMessage(type,text){
+        const div = document.createElement("div");
+        div.className = "message " + type;
+        div.innerHTML = text;
+        chat.appendChild(div);
+        chat.scrollTop = chat.scrollHeight;
+        return div;
+    }
+
+    // -------- SESSION CHECK --------
+    async function checkSession(){
+        const res = await fetch("/me", {
+            credentials: "include"
+        });
+
+        const data = await res.json();
+
+        if(data.logged){
+            username = data.username;
+            sessionActive = true;
+            addMessage("system", "Bienvenue " + username + " 👋");
+            return;
+        }
+
+        await login();
+    }
+
+    // -------- LOGIN --------
+    async function login(){
+        username = prompt("Pseudo :");
+        const password = prompt("Mot de passe :");
+
+        if(!username || !password){
+            alert("Connexion annulée");
+            location.reload();
+        }
+
+        const res = await fetch("/login", {
+            method: "POST",
+            headers: {"Content-Type":"application/json"},
+            body: JSON.stringify({username, password}),
+            credentials: "include"
+        });
+
+        const data = await res.json();
+
+        if(data.error){
+            alert(data.error);
+            location.reload();
+        }
+
+        addMessage("system", "Bienvenue " + data.username + " 👋");
+        sessionActive = true;
+    }
+
+    // -------- LOGOUT --------
+    async function logout(){
+        await fetch("/logout", {
+            method: "POST",
+            credentials: "include"
+        });
+
+        location.reload();
+    }
+
+    // -------- ENVOI --------
+    function send(){
+        if(!sessionActive) return;
+        const message = input.value.trim();
+        if(!message) return;
+
+        input.value = "";
+        sendBtn.disabled = true;
+        const userDiv = addMessage("user", DOMPurify.sanitize(message));
+
+        const botDiv = addMessage("bot","");
+        statusBox.innerText = "Connexion...";
+
+        let fullResponse = "";
+
+        fetch("/stream",{
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({message}),
+        credentials:"include"
+    }).then(async response => {
+
+        if (!response.ok) {
+            // si le serveur renvoie 4xx ou 5xx
+            const data = await response.json();
+            alert("Erreur : " + (data.error || "Inconnue"));
+            sendBtn.disabled = false;
+            return; // stoppe ici
+        }
+
+        // seulement si tout est ok, on commence le stream
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+
+
+            function read() {
+                reader.read().then(({done, value}) => {
+                    if(done){
+                        sendBtn.disabled = false;
+                        return;
+                    }
+
+                    const chunk = decoder.decode(value);
+                    const lines = chunk.split("\n\n");
+
+                    lines.forEach(line => {
+                        if(line.startsWith("data: ")){
+                            const data = JSON.parse(line.replace("data: ", ""));
+
+                            if(data.type === "queue"){
+                                statusBox.innerText =
+                                    "Tu es dans la file d'attente, " +
+                                    data.position +
+                                    " personnes devant vous";
+                            }
+
+                            if(data.type === "token"){
+                                statusBox.innerText = "Génération en cours...";
+                                fullResponse += data.content;
+                                botDiv.innerHTML = marked.parse(DOMPurify.sanitize(fullResponse));
+                            }
+
+                            if(data.type === "done"){
+                                statusBox.innerText = "Terminé";
+                                sendBtn.disabled = false;
+                            }
+
+                            if(data.type === "error"){
+                                botDiv.innerText = "Erreur : " + data.content;
+                                sendBtn.disabled = false;
+                            }
+                        }
+                    });
+
+                    read();
+                });
+            }
+
+            read();
+        });
+    }
+
+    sendBtn.addEventListener("click", send);
+    input.addEventListener("keydown", e => { if(e.key === "Enter") send(); });
+
+    document.getElementById("logoutBtn").addEventListener("click", logout);
+
+    checkSession();
+});
+</script>
+</body>
+</html>
