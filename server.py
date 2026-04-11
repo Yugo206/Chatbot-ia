@@ -16,7 +16,7 @@ if not OPENAI_API_KEY:
 client = OpenAI(api_key=OPENAI_API_KEY)
 MODEL_NAME = "gpt-4o-mini"
 
-# ---------------- DB CONFIG ----------------
+# ---------------- DB CONFIG ---------------
 DB_PATH = os.path.join(os.path.dirname(__file__), "data.db")
 
 def get_db():
