@@ -169,7 +169,7 @@ def stream():
             stream = client.chat.completions.create(
                 model=MODEL_NAME,
                 messages=[
-                    {"role": "system", "content": "Tu es un assistant utile et réponds en moins de 5 phrases."},
+                    {"role": "system", "content": "Tu es un assistant expert en développement. Donne des réponses détaillées, pédagogiques, avec des exemples de code et des explications claires étape par étape."},
                     *context
                 ],
                 temperature=0.2,
