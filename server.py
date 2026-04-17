@@ -1,4 +1,6 @@
 import sqlite3
+import psycopg2
+from urllib.parse import urlparse
 from flask import Flask, request, jsonify, render_template, Response, session
 from flask_cors import CORS
 import threading
@@ -17,14 +19,28 @@ client = OpenAI(api_key=OPENAI_API_KEY)
 MODEL_NAME = "gpt-4o-mini"
 
 # ---------------- DB CONFIG ---------------
-DB_PATH = os.path.join(os.path.dirname(__file__), "data.db")
+DATABASE_URL = os.getenv("DATABASE_URL")
 
 def get_db():
-    conn = sqlite3.connect(DB_PATH, timeout=5, check_same_thread=False)
-    conn.execute("PRAGMA journal_mode=WAL;")
-    conn.execute("PRAGMA synchronous=NORMAL;")
-    conn.execute("PRAGMA busy_timeout=5000;")
-    return conn
+    if DATABASE_URL:
+        # PostgreSQL (Render)
+        url = urlparse(DATABASE_URL)
+        conn = psycopg2.connect(
+            dbname=url.path[1:],
+            user=url.username,
+            password=url.password,
+            host=url.hostname,
+            port=url.port
+        )
+        return conn
+    else:
+        # SQLite (local)
+        DB_PATH = os.path.join(os.path.dirname(__file__), "data.db")
+        conn = sqlite3.connect(DB_PATH, timeout=5, check_same_thread=False)
+        conn.execute("PRAGMA journal_mode=WAL;")
+        conn.execute("PRAGMA synchronous=NORMAL;")
+        conn.execute("PRAGMA busy_timeout=5000;")
+        return conn
 
 app = Flask(__name__)
 app.secret_key = "dev-secret-key"
@@ -71,7 +87,7 @@ def login():
 
     with get_db() as conn:
         cur = conn.cursor()
-        cur.execute("SELECT mdp FROM users WHERE username = ?", (username,))
+        cur.execute("SELECT mdp FROM users WHERE username = %s", (username,))
         row = cur.fetchone()
 
         if not row or row[0] != password:
@@ -125,7 +141,7 @@ def stream():
     # ---------- Vérification DB avant file d'attente ----------
     with get_db() as conn:
         cur = conn.cursor()
-        cur.execute("SELECT mdp, message_restant FROM users WHERE username = ?", (username,))
+        cur.execute("SELECT mdp, message_restant FROM users WHERE username = %s", (username,))
         row = cur.fetchone()
 
         if not row:
@@ -193,7 +209,7 @@ def stream():
             try:
                 with get_db() as conn:
                     cur = conn.cursor()
-                    cur.execute("UPDATE users SET message_restant = message_restant - 1 WHERE username = ?", (username,))
+                    cur.execute("UPDATE users SET message_restant = message_restant - 1 WHERE username = %s", (username,))
                     conn.commit()
             except Exception:
                 pass
