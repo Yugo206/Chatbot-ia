@@ -1,4 +1,3 @@
-import sqlite3
 import psycopg2
 from urllib.parse import urlparse
 from flask import Flask, request, jsonify, render_template, Response, session
@@ -22,25 +21,19 @@ MODEL_NAME = "gpt-4o-mini"
 DATABASE_URL = os.getenv("DATABASE_URL")
 
 def get_db():
-    if DATABASE_URL:
-        # PostgreSQL (Render)
-        url = urlparse(DATABASE_URL)
-        conn = psycopg2.connect(
-            dbname=url.path[1:],
-            user=url.username,
-            password=url.password,
-            host=url.hostname,
-            port=url.port
-        )
-        return conn
-    else:
-        # SQLite (local)
-        DB_PATH = os.path.join(os.path.dirname(__file__), "data.db")
-        conn = sqlite3.connect(DB_PATH, timeout=5, check_same_thread=False)
-        conn.execute("PRAGMA journal_mode=WAL;")
-        conn.execute("PRAGMA synchronous=NORMAL;")
-        conn.execute("PRAGMA busy_timeout=5000;")
-        return conn
+    if not DATABASE_URL:
+        raise ValueError("DATABASE_URL manquant. Configure la base PostgreSQL.")
+
+    url = urlparse(DATABASE_URL)
+    conn = psycopg2.connect(
+        dbname=url.path[1:],
+        user=url.username,
+        password=url.password,
+        host=url.hostname,
+        port=url.port
+    )
+    conn.autocommit = True
+    return conn
 
 app = Flask(__name__)
 app.secret_key = "dev-secret-key"
@@ -206,13 +199,9 @@ def stream():
             user_contexts[username] = context
 
             # decrement messages
-            try:
-                with get_db() as conn:
-                    cur = conn.cursor()
-                    cur.execute("UPDATE users SET message_restant = message_restant - 1 WHERE username = %s", (username,))
-                    conn.commit()
-            except Exception:
-                pass
+            with get_db() as conn:
+                cur = conn.cursor()
+                cur.execute("UPDATE users SET message_restant = message_restant - 1 WHERE username = %s", (username,))
 
         except Exception as e:
             yield f"data: {json.dumps({'type':'error','content':str(e)})}\n\n"
