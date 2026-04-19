@@ -168,7 +168,16 @@ button:disabled{
 </head>
 
 <body>
-<div id="app">
+<div id="loginPage" style="position:absolute;inset:0;display:flex;justify-content:center;align-items:center;background:radial-gradient(circle at top,#0f172a,#020617);z-index:10;">
+  <div style="width:360px;background:rgba(30,41,59,0.8);backdrop-filter:blur(20px);padding:30px;border-radius:20px;box-shadow:0 0 40px rgba(0,0,0,0.6);display:flex;flex-direction:column;gap:15px;">
+    <h2 style="text-align:center;margin:0;">Connexion</h2>
+    <input id="loginUsername" placeholder="Nom d'utilisateur">
+    <input id="loginPassword" type="password" placeholder="Mot de passe">
+    <button id="loginBtn">Se connecter</button>
+    <p id="loginError" style="color:#f87171;text-align:center;font-size:0.9rem;"></p>
+  </div>
+</div>
+<div id="app" style="display:none;">
 <header>🤖 Chatbot Pro
 <button id="logoutBtn">Logout</button></header>
 <div id="chat"></div>
@@ -189,6 +198,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     let username = "";
     let sessionActive = false;
+    let csrfToken = "";
 
     function addMessage(type,text){
         const div = document.createElement("div");
@@ -201,55 +211,76 @@ document.addEventListener("DOMContentLoaded", () => {
 
     // -------- SESSION CHECK --------
     async function checkSession(){
-        const res = await fetch("/me", {
-            credentials: "include"
-        });
-
+        const res = await fetch("/me", { credentials:"include" });
         const data = await res.json();
 
         if(data.logged){
             username = data.username;
             sessionActive = true;
-            addMessage("system", "Bienvenue " + username + " 👋");
-            return;
-        }
+            csrfToken = data.csrf_token || "";
 
-        await login();
+            document.getElementById("loginPage").style.display = "none";
+            document.getElementById("app").style.display = "flex";
+
+            addMessage("system", "Bienvenue " + username + " 👋");
+        }
     }
 
     // -------- LOGIN --------
     async function login(){
-        username = prompt("Pseudo :");
-        const password = prompt("Mot de passe :");
+        const usernameInput = document.getElementById("loginUsername");
+        const passwordInput = document.getElementById("loginPassword");
+        const errorBox = document.getElementById("loginError");
 
-        if(!username || !password){
-            alert("Connexion annulée");
-            location.reload();
+        const usernameVal = usernameInput.value.trim();
+        const passwordVal = passwordInput.value.trim();
+
+        if(!usernameVal || !passwordVal){
+            errorBox.innerText = "Veuillez remplir tous les champs";
+            return;
         }
 
-        const res = await fetch("/login", {
-            method: "POST",
-            headers: {"Content-Type":"application/json"},
-            body: JSON.stringify({username, password}),
-            credentials: "include"
-        });
+        errorBox.innerText = "Connexion...";
 
-        const data = await res.json();
+        try{
+            const res = await fetch("/login", {
+                method:"POST",
+                headers:{
+                    "Content-Type":"application/json",
+                    ...(csrfToken ? {"X-CSRF-Token": csrfToken} : {})
+                },
+                body: JSON.stringify({username: usernameVal, password: passwordVal}),
+                credentials:"include"
+            });
 
-        if(data.error){
-            alert(data.error);
-            location.reload();
+            const data = await res.json();
+
+            if(!res.ok || data.error){
+                errorBox.innerText = data.error || "Identifiants incorrects";
+                return;
+            }
+
+            username = data.username;
+            sessionActive = true;
+
+            document.getElementById("loginPage").style.display = "none";
+            document.getElementById("app").style.display = "flex";
+
+            addMessage("system", "Bienvenue " + username + " 👋");
+
+        } catch(e){
+            errorBox.innerText = "Erreur réseau";
         }
-
-        addMessage("system", "Bienvenue " + data.username + " 👋");
-        sessionActive = true;
     }
+
+    document.getElementById("loginBtn").addEventListener("click", login);
 
     // -------- LOGOUT --------
     async function logout(){
         await fetch("/logout", {
             method: "POST",
-            credentials: "include"
+            credentials: "include",
+            headers: csrfToken ? { "X-CSRF-Token": csrfToken } : {}
         });
 
         location.reload();
@@ -272,17 +303,23 @@ document.addEventListener("DOMContentLoaded", () => {
 
         fetch("/stream",{
         method:"POST",
-        headers:{"Content-Type":"application/json"},
+        headers:{
+            "Content-Type":"application/json",
+            ...(csrfToken ? {"X-CSRF-Token": csrfToken} : {})
+        },
         body: JSON.stringify({message}),
         credentials:"include"
     }).then(async response => {
 
         if (!response.ok) {
-            // si le serveur renvoie 4xx ou 5xx
-            const data = await response.json();
-            alert("Erreur : " + (data.error || "Inconnue"));
+            let errText = "Erreur serveur";
+            try {
+                const data = await response.json();
+                errText = data.error || errText;
+            } catch (_) {}
+            alert("Erreur : " + errText);
             sendBtn.disabled = false;
-            return; // stoppe ici
+            return;
         }
 
         // seulement si tout est ok, on commence le stream
@@ -297,7 +334,7 @@ document.addEventListener("DOMContentLoaded", () => {
                         return;
                     }
 
-                    const chunk = decoder.decode(value);
+                    const chunk = decoder.decode(value, { stream: true });
                     const lines = chunk.split("\n\n");
 
                     lines.forEach(line => {

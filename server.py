@@ -24,18 +24,48 @@ def get_db():
     if not DATABASE_URL:
         raise ValueError("DATABASE_URL manquant. Configure la base PostgreSQL.")
 
-    conn = psycopg2.connect(DATABASE_URL, sslmode="require")
+    conn = psycopg2.connect(
+        DATABASE_URL,
+        sslmode="require",
+        connect_timeout=5
+    )
     conn.autocommit = True
     return conn
 
 app = Flask(__name__)
 app.secret_key = "dev-secret-key"
+
+def generate_csrf_token():
+    if "csrf_token" not in session:
+        session["csrf_token"] = os.urandom(16).hex()
+    return session["csrf_token"]
+
+@app.before_request
+def csrf_protect():
+    if request.method in ["GET", "HEAD", "OPTIONS"]:
+        return
+
+    # allow login without CSRF only if no session exists yet
+    if request.path == "/login":
+        return
+    if request.path == "/stream":
+        return
+
+    token = session.get("csrf_token")
+    header_token = request.headers.get("X-CSRF-Token")
+
+    if not token:
+        return jsonify({"error": "CSRF manquant"}), 403
+
+    if token != header_token:
+        return jsonify({"error": "CSRF invalide"}), 403
+
 app.config["PERMANENT_SESSION_LIFETIME"] = 60 * 60 * 24 * 7  # 7 days
 
 app.config.update(
     SESSION_COOKIE_HTTPONLY=True,
     SESSION_COOKIE_SAMESITE="Lax",
-    SESSION_COOKIE_SECURE=False  # mettre True en HTTPS (prod)
+    SESSION_COOKIE_SECURE=True # mettre True en HTTPS (prod)
 )
 
 # CORS correct
@@ -49,9 +79,15 @@ queue_lock = threading.Lock()
 
 # ---------------- CONTEXT MANAGEMENT ----------------
 user_contexts = {}
-MAX_CONTEXT_MESSAGES = 8
-MAX_INPUT_TOKENS = 100
-MAX_OUTPUT_TOKENS = 500
+
+# -------- SECURITY --------
+login_attempts = {}  # {ip: [timestamps]}
+MAX_ATTEMPTS = 5
+BLOCK_TIME = 60  # seconds
+
+MAX_CONTEXT_MESSAGES = 10
+MAX_INPUT_TOKENS = 150
+MAX_OUTPUT_TOKENS = 1000
 
 def trim_context(context):
     return context[-MAX_CONTEXT_MESSAGES:]
@@ -64,6 +100,17 @@ def home():
 # -------- LOGIN --------
 @app.route("/login", methods=["POST"])
 def login():
+    ip = request.remote_addr
+    now = time.time()
+
+    # Clean old attempts
+    attempts = login_attempts.get(ip, [])
+    attempts = [t for t in attempts if now - t < BLOCK_TIME]
+    login_attempts[ip] = attempts
+
+    if len(attempts) >= MAX_ATTEMPTS:
+        return jsonify({"error": "Trop de tentatives. Réessaie plus tard."}), 429
+
     data = request.get_json()
     username = (data.get("username") or "").strip()
     password = (data.get("password") or "").strip()
@@ -77,8 +124,11 @@ def login():
         row = cur.fetchone()
 
         if not row or row[0] != password:
+            attempts.append(now)
+            login_attempts[ip] = attempts
             return jsonify({"error": "Identifiants invalides"}), 401
 
+    login_attempts[ip] = []  # reset after success
     session["user"] = username
     session.permanent = True
     return jsonify({"success": True, "username": username})
@@ -92,14 +142,15 @@ def me():
 
     return jsonify({
         "logged": True,
-        "username": session["user"]
+        "username": session["user"],
+        "csrf_token": generate_csrf_token()
     })
 
 
 # -------- LOGOUT --------
-@app.route("/logout", methods=["POST"])
+@app.route("/logout", methods=["POST", "GET"])
 def logout():
-    session.pop("user", None)
+    session.clear()
     return jsonify({"success": True})
 
 
@@ -150,7 +201,14 @@ def stream():
 
         while True:
             with queue_lock:
-                position = queue.index(username)
+                if username not in queue:
+                    return
+
+                if username not in queue:
+                    position = 0
+                else:
+                    position = queue.index(username)
+
                 if position == 0 and active_user is None:
                     active_user = username
                     break
@@ -192,9 +250,12 @@ def stream():
             user_contexts[username] = context
 
             # decrement messages
-            with get_db() as conn:
+            conn = get_db()
+            try:
                 cur = conn.cursor()
                 cur.execute("UPDATE users SET message_restant = message_restant - 1 WHERE username = %s", (username,))
+            finally:
+                conn.close()
 
         except Exception as e:
             yield f"data: {json.dumps({'type':'error','content':str(e)})}\n\n"
