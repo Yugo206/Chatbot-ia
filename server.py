@@ -24,14 +24,7 @@ def get_db():
     if not DATABASE_URL:
         raise ValueError("DATABASE_URL manquant. Configure la base PostgreSQL.")
 
-    url = urlparse(DATABASE_URL)
-    conn = psycopg2.connect(
-        dbname=url.path[1:],
-        user=url.username,
-        password=url.password,
-        host=url.hostname,
-        port=url.port
-    )
+    conn = psycopg2.connect(DATABASE_URL, sslmode="require")
     conn.autocommit = True
     return conn
 
@@ -178,7 +171,7 @@ def stream():
             stream = client.chat.completions.create(
                 model=MODEL_NAME,
                 messages=[
-                    {"role": "system", "content": "Tu es un assistant expert en développement. Donne des réponses détaillées, pédagogiques, avec des exemples de code et des explications claires étape par étape."},
+                    {"role": "system", "content": "Tu es un assistant utile, clair et fiable. Tu réponds simplement, de façon pédagogique, avec des explications faciles à comprendre. Tu peux donner des exemples si c’est utile. Si tu n’es pas sûr d’une information, dis-le honnêtement.Évite les réponses trop longues inutilement."},
                     *context
                 ],
                 temperature=0.2,

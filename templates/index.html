@@ -12,85 +12,165 @@
 <style>
 body {
     margin:0;
-    font-family:system-ui;
-    background:#0f172a;
+    font-family: 'Inter', system-ui, sans-serif;
+    background: radial-gradient(circle at top, #0f172a, #020617);
     color:white;
     display:flex;
     justify-content:center;
     align-items:center;
     height:100vh;
 }
+
 #app{
-    width:900px;
-    height:90vh;
-    background:#1e293b;
-    border-radius:20px;
+    width:950px;
+    height:92vh;
+    background:rgba(30,41,59,0.7);
+    backdrop-filter: blur(20px);
+    border-radius:24px;
     display:flex;
     flex-direction:column;
     overflow:hidden;
+    box-shadow: 0 0 40px rgba(0,0,0,0.6);
 }
+
 header{
-    background:#ED8421;
+    background:linear-gradient(90deg,#ED8421,#facc15);
     padding:1rem;
     text-align:center;
     font-weight:bold;
     color:black;
+    position:relative;
+    font-size:1.1rem;
 }
+
+#logoutBtn{
+    position:absolute;
+    right:15px;
+    top:50%;
+    transform:translateY(-50%);
+    background:#0f172a;
+    color:white;
+    border:none;
+    padding:6px 12px;
+    border-radius:10px;
+    cursor:pointer;
+    transition:0.2s;
+}
+
+#logoutBtn:hover{
+    background:#1e293b;
+}
+
 #chat{
     flex:1;
-    padding:20px;
+    padding:25px;
     overflow-y:auto;
     display:flex;
     flex-direction:column;
-    gap:12px;
+    gap:14px;
 }
+
 .message{
     max-width:70%;
-    padding:12px;
-    border-radius:14px;
+    padding:14px;
+    border-radius:16px;
     white-space:pre-wrap;
+    line-height:1.4;
+    animation:fadeIn 0.2s ease;
 }
-.user{ align-self:flex-end; background:#2563eb; }
-.bot{ align-self:flex-start; background:#16a34a; }
-.system{ align-self:center; background:#475569; }
+
+@keyframes fadeIn{
+    from{opacity:0; transform:translateY(10px);}
+    to{opacity:1; transform:translateY(0);}
+}
+
+.user{
+    align-self:flex-end;
+    background:linear-gradient(135deg,#2563eb,#1d4ed8);
+    box-shadow:0 5px 15px rgba(37,99,235,0.4);
+}
+
+.bot{
+    align-self:flex-start;
+    background:linear-gradient(135deg,#16a34a,#15803d);
+    box-shadow:0 5px 15px rgba(22,163,74,0.4);
+}
+
+.system{
+    align-self:center;
+    background:#334155;
+    font-size:0.9rem;
+    opacity:0.9;
+}
+
 #status{
     text-align:center;
-    padding:5px;
-    font-size:0.9rem;
+    padding:6px;
+    font-size:0.85rem;
     color:#facc15;
+    min-height:20px;
 }
+
 #input-area{
     display:flex;
     padding:15px;
     gap:10px;
-    background:#0f172a;
+    background:rgba(15,23,42,0.8);
+    border-top:1px solid rgba(255,255,255,0.05);
 }
+
 input{
     flex:1;
-    padding:10px;
-    border-radius:10px;
+    padding:12px;
+    border-radius:12px;
     border:none;
-    background:#334155;
+    background:#1e293b;
     color:white;
+    outline:none;
+    transition:0.2s;
 }
+
+input:focus{
+    box-shadow:0 0 0 2px #ED8421;
+}
+
 button{
-    padding:10px 20px;
+    padding:12px 22px;
     border:none;
-    border-radius:10px;
-    background:#ED8421;
+    border-radius:12px;
+    background:linear-gradient(135deg,#ED8421,#f97316);
     font-weight:bold;
     cursor:pointer;
+    transition:0.2s;
 }
+
+button:hover{
+    transform:translateY(-1px);
+    box-shadow:0 5px 15px rgba(249,115,22,0.4);
+}
+
 button:disabled{
     opacity:0.5;
     cursor:not-allowed;
+    transform:none;
+    box-shadow:none;
+}
+
+/* Scrollbar custom */
+#chat::-webkit-scrollbar {
+    width:8px;
+}
+#chat::-webkit-scrollbar-thumb {
+    background:#475569;
+    border-radius:10px;
 }
 </style>
 </head>
 
 <body>
 <div id="app">
-<header>🤖 Chatbot Pro <button id="logoutBtn" style="float:right;background:#334155;color:white;border:none;padding:6px 10px;border-radius:8px;cursor:pointer;">Logout</button></header>
+<header>🤖 Chatbot Pro
+<button id="logoutBtn">Logout</button></header>
 <div id="chat"></div>
 <div id="status"></div>
 
