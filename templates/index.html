@@ -149,6 +149,24 @@ button:hover{
     box-shadow:0 5px 15px rgba(249,115,22,0.4);
 }
 
+.print-btn{
+    margin-top:8px;
+    padding:8px 14px;
+    border:none;
+    border-radius:10px;
+    background:linear-gradient(135deg,#334155,#1e293b);
+    color:white;
+    font-size:0.85rem;
+    cursor:pointer;
+    transition:0.2s;
+    align-self:flex-end;
+}
+
+.print-btn:hover{
+    transform:translateY(-1px);
+    box-shadow:0 5px 12px rgba(0,0,0,0.4);
+}
+
 button:disabled{
     opacity:0.5;
     cursor:not-allowed;
@@ -357,6 +375,45 @@ document.addEventListener("DOMContentLoaded", () => {
                             if(data.type === "done"){
                                 statusBox.innerText = "Terminé";
                                 sendBtn.disabled = false;
+
+                                // Create print button
+                                const printBtn = document.createElement("button");
+                                printBtn.innerText = "Imprimer";
+                                printBtn.className = "print-btn";
+
+                                printBtn.addEventListener("click", () => {
+                                    const printWindow = window.open("", "_blank");
+
+                                    const content = `
+                                        <html>
+                                        <head>
+                                            <title>Impression</title>
+                                            <style>
+                                                body{font-family:Arial, sans-serif;padding:20px;}
+                                                h2{margin-bottom:10px;}
+                                                .block{margin-bottom:20px;}
+                                            </style>
+                                        </head>
+                                        <body>
+                                            <div class="block">
+                                                <h2>Message utilisateur</h2>
+                                                <p>${userDiv.innerText}</p>
+                                            </div>
+                                            <div class="block">
+                                                <h2>Réponse IA</h2>
+                                                <p>${botDiv.innerText}</p>
+                                            </div>
+                                        </body>
+                                        </html>
+                                    `;
+
+                                    printWindow.document.write(content);
+                                    printWindow.document.close();
+                                    printWindow.focus();
+                                    printWindow.print();
+                                });
+
+                                botDiv.appendChild(printBtn);
                             }
 
                             if(data.type === "error"){
