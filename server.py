@@ -1,6 +1,6 @@
 import psycopg2
 from urllib.parse import urlparse
-from flask import Flask, request, jsonify, render_template, Response, session
+from flask import Flask, request, jsonify, render_template, Response, session, stream_with_context
 from flask_cors import CORS
 import threading
 import time
@@ -9,6 +9,7 @@ import os
 from openai import OpenAI
 from dotenv import load_dotenv
 load_dotenv()
+
 
 # ---------------- CONFIG ----------------
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
@@ -25,9 +26,9 @@ def get_db():
         raise ValueError("DATABASE_URL manquant. Configure la base PostgreSQL.")
 
     conn = psycopg2.connect(
-        DATABASE_URL,
+        dsn=DATABASE_URL,
         sslmode="require",
-        connect_timeout=5
+        connect_timeout=20
     )
     conn.autocommit = True
     return conn
@@ -95,7 +96,30 @@ def trim_context(context):
 # ---------------- ROUTES ----------------
 @app.route("/")
 def home():
+    print(client.base_url)
     return render_template("index.html")
+
+# -------- HEALTH CHECK --------
+@app.route("/health", methods=["GET"])
+def health():
+    try:
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute("SELECT 1")
+        cur.fetchone()
+        conn.close()
+
+        return jsonify({
+            "ready": True
+        })
+
+    except Exception as e:
+        print("[HEALTH ERROR]", str(e))
+
+        return jsonify({
+            "ready": False,
+            "message": "Réveil de la base de données..."
+        }), 503
 
 # -------- LOGIN --------
 @app.route("/login", methods=["POST"])
@@ -118,7 +142,14 @@ def login():
     if not username or not password:
         return jsonify({"error": "Champs manquants"}), 400
 
-    with get_db() as conn:
+    try:
+        conn = get_db()
+    except Exception:
+        return jsonify({
+            "error": "Le serveur démarre encore. Réessayez dans quelques secondes."
+        }), 503
+
+    with conn:
         cur = conn.cursor()
         cur.execute("SELECT mdp FROM users WHERE username = %s", (username,))
         row = cur.fetchone()
@@ -175,8 +206,14 @@ def stream():
     if not message:
         return jsonify({"error": "Message vide"}), 400
 
-    # ---------- Vérification DB avant file d'attente ----------
-    with get_db() as conn:
+    try:
+        conn = get_db()
+    except Exception:
+        return jsonify({
+            "error": "Le serveur se réveille encore. Réessayez dans quelques secondes."
+        }), 503
+
+    with conn:
         cur = conn.cursor()
         cur.execute("SELECT mdp, message_restant FROM users WHERE username = %s", (username,))
         row = cur.fetchone()
@@ -193,6 +230,7 @@ def stream():
     def generate():
         global active_user
 
+        yield f"data: {json.dumps({'type':'start'})}\n\n"
 
         # -------- FILE D’ATTENTE --------
         with queue_lock:
@@ -238,8 +276,12 @@ def stream():
             )
 
             for chunk in stream:
-                if chunk.choices[0].delta.content:
+                try:
                     token = chunk.choices[0].delta.content
+                except Exception:
+                    token = None
+
+                if token:
                     full_response += token
                     yield f"data: {json.dumps({'type': 'token', 'content': token})}\n\n"
 
@@ -268,8 +310,16 @@ def stream():
 
         yield f"data: {json.dumps({'type':'done'})}\n\n"
 
-    return Response(generate(), mimetype="text/event-stream")
+    return Response(
+        stream_with_context(generate()),
+        mimetype="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no"
+        }
+    )
 
 
 if __name__ == "__main__":
-    app.run()
+    app.run(host="0.0.0.0", port=6767, threaded=True)

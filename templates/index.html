@@ -174,18 +174,66 @@ button:disabled{
     box-shadow:none;
 }
 
-/* Scrollbar custom */
-#chat::-webkit-scrollbar {
-    width:8px;
+#startupOverlay{
+    position:absolute;
+    inset:0;
+    background:rgba(2,6,23,0.96);
+    z-index:9999;
+    display:none;
+    flex-direction:column;
+    justify-content:center;
+    align-items:center;
+    gap:18px;
+    text-align:center;
+    padding:30px;
 }
-#chat::-webkit-scrollbar-thumb {
-    background:#475569;
-    border-radius:10px;
+
+#startupSpinner{
+    width:70px;
+    height:70px;
+    border-radius:50%;
+    border:5px solid #334155;
+    border-top:5px solid #ED8421;
+    animation:startupSpin 1s linear infinite;
+}
+
+@keyframes startupSpin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+#startupTitle{
+    font-size:1.5rem;
+    font-weight:bold;
+}
+
+#startupMessage{
+    max-width:500px;
+    opacity:0.9;
+    line-height:1.5;
+}
+
+#startupTimer{
+    color:#facc15;
+    font-size:1.1rem;
+    font-weight:bold;
 }
 </style>
 </head>
 
 <body>
+<div id="startupOverlay">
+    <div id="startupSpinner"></div>
+
+    <div id="startupTitle">🟠 Réveil du serveur...</div>
+
+    <div id="startupMessage">
+        Le chatbot prépare la connexion à l'intelligence artificielle.<br>
+        Cela peut prendre quelques secondes lorsque le serveur se réveille.
+    </div>
+
+    <div id="startupTimer">Vérification...</div>
+</div>
 <div id="loginPage" style="position:absolute;inset:0;display:flex;justify-content:center;align-items:center;background:radial-gradient(circle at top,#0f172a,#020617);z-index:10;">
   <div style="width:360px;background:rgba(30,41,59,0.8);backdrop-filter:blur(20px);padding:30px;border-radius:20px;box-shadow:0 0 40px rgba(0,0,0,0.6);display:flex;flex-direction:column;gap:15px;">
     <h2 style="text-align:center;margin:0;">Connexion</h2>
@@ -208,11 +256,57 @@ button:disabled{
 </div>
 
 <script>
-document.addEventListener("DOMContentLoaded", () => {
+document.addEventListener("DOMContentLoaded", async () => {
     const chat = document.getElementById("chat");
     const statusBox = document.getElementById("status");
     const sendBtn = document.getElementById("sendBtn");
     const input = document.getElementById("msg");
+
+    const startupOverlay = document.getElementById("startupOverlay");
+    const startupTimer = document.getElementById("startupTimer");
+    async function waitForBackendReady(){
+        startupOverlay.style.display = "flex";
+
+        let seconds = 0;
+
+        const timerInterval = setInterval(() => {
+            seconds++;
+            startupTimer.innerText = `Temps d'attente : ${seconds}s`;
+        }, 1000);
+
+        async function check(){
+            try{
+                const res = await fetch("/health", {
+                    credentials:"include"
+                });
+
+                const data = await res.json();
+
+                if(data.ready){
+                    clearInterval(timerInterval);
+                    startupOverlay.style.display = "none";
+                    return true;
+                }
+
+                startupTimer.innerText = data.message || "Réveil du serveur...";
+
+            } catch(e){
+                startupTimer.innerText = "Connexion au serveur...";
+            }
+
+            return false;
+        }
+
+        while(true){
+            const ready = await check();
+
+            if(ready){
+                break;
+            }
+
+            await new Promise(resolve => setTimeout(resolve, 5000));
+        }
+    }
 
     let username = "";
     let sessionActive = false;
@@ -346,37 +440,49 @@ document.addEventListener("DOMContentLoaded", () => {
 
 
             function read() {
-                reader.read().then(({done, value}) => {
-                    if(done){
+                reader.read().then(({ done, value }) => {
+                    if (done) {
                         sendBtn.disabled = false;
+                        statusBox.innerText = "Terminé";
                         return;
                     }
 
-                    const chunk = decoder.decode(value, { stream: true });
-                    const lines = chunk.split("\n\n");
+                    try {
+                        const chunk = decoder.decode(value, { stream: true });
 
-                    lines.forEach(line => {
-                        if(line.startsWith("data: ")){
-                            const data = JSON.parse(line.replace("data: ", ""));
+                        // SSE can split data -> we still process line by line safely
+                        const lines = chunk.split("\n\n");
 
-                            if(data.type === "queue"){
+                        lines.forEach(line => {
+                            if (!line.startsWith("data: ")) return;
+
+                            const jsonStr = line.replace("data: ", "").trim();
+
+                            let data;
+                            try {
+                                data = JSON.parse(jsonStr);
+                            } catch (e) {
+                                console.log("SSE parse error:", jsonStr);
+                                return;
+                            }
+
+                            if (data.type === "queue") {
                                 statusBox.innerText =
                                     "Tu es dans la file d'attente, " +
                                     data.position +
                                     " personnes devant vous";
                             }
 
-                            if(data.type === "token"){
+                            if (data.type === "token") {
                                 statusBox.innerText = "Génération en cours...";
                                 fullResponse += data.content;
                                 botDiv.innerHTML = marked.parse(DOMPurify.sanitize(fullResponse));
                             }
 
-                            if(data.type === "done"){
+                            if (data.type === "done") {
                                 statusBox.innerText = "Terminé";
                                 sendBtn.disabled = false;
 
-                                // Create print button
                                 const printBtn = document.createElement("button");
                                 printBtn.innerText = "Imprimer";
                                 printBtn.className = "print-btn";
@@ -416,12 +522,17 @@ document.addEventListener("DOMContentLoaded", () => {
                                 botDiv.appendChild(printBtn);
                             }
 
-                            if(data.type === "error"){
+                            if (data.type === "error") {
                                 botDiv.innerText = "Erreur : " + data.content;
                                 sendBtn.disabled = false;
                             }
-                        }
-                    });
+                        });
+
+                    } catch (e) {
+                        console.error("STREAM ERROR:", e);
+                        statusBox.innerText = "Erreur de connexion";
+                        sendBtn.disabled = false;
+                    }
 
                     read();
                 });
@@ -436,6 +547,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     document.getElementById("logoutBtn").addEventListener("click", logout);
 
+    await waitForBackendReady();
     checkSession();
 });
 </script>

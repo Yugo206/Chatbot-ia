@@ -16,3 +16,5 @@ __pycache__/
 .vscode/
 resquests-ia.py
 nohup.out
+data.db-shm
+data.db-wal
