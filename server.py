@@ -267,7 +267,7 @@ def stream():
             stream = client.chat.completions.create(
                 model=MODEL_NAME,
                 messages=[
-                    {"role": "system", "content": "Tu es un assistant utile, clair et fiable. Tu réponds simplement, de façon pédagogique, avec des explications faciles à comprendre. Tu peux donner des exemples si c’est utile. Si tu n’es pas sûr d’une information, dis-le honnêtement.Évite les réponses trop longues inutilement."},
+                    {"role": "system", "content": "Tu es un assistant utile, clair et fiable. Tu réponds simplement et de façon pédagogique. Donne des explications faciles à comprendre avec des exemples si utile. Si tu n’es pas sûr d’une information, dis-le honnêtement. Évite les réponses inutilement longues. À la fin, tu peux proposer brièvement une aide complémentaire pertinente."},
                     *context
                 ],
                 temperature=0.2,
